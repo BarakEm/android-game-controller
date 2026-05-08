@@ -1,0 +1,179 @@
+<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>בקר משחקים</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0d0d1a;
+      font-family: -apple-system, Arial, sans-serif;
+      color: #fff;
+    }
+    .screen {
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 20px;
+      padding: 20px;
+    }
+    h1 {
+      font-size: clamp(22px, 5vw, 36px);
+      font-weight: 900;
+      color: #a0a0ff;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+    .game-grid {
+      display: flex;
+      flex-direction: row;
+      gap: 16px;
+      width: 100%;
+      max-width: 720px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1 1 180px;
+      max-width: 220px;
+      min-height: 120px;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px;
+      font-family: inherit;
+      font-weight: 900;
+      font-size: clamp(14px, 2.5vw, 18px);
+      transition: transform 0.1s, filter 0.1s;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn:active { transform: scale(0.95); filter: brightness(1.2); }
+    .btn-icon { font-size: clamp(32px, 6vw, 48px); }
+    .btn-subtitle {
+      font-size: clamp(11px, 1.8vw, 13px);
+      font-weight: 400;
+      opacity: 0.8;
+    }
+
+    /* TV control — purple gradient */
+    .btn-tv {
+      background: linear-gradient(135deg, #6c63ff 0%, #3a3080 100%);
+      color: #fff;
+    }
+    /* Balloon standalone — pink gradient */
+    .btn-balloon {
+      background: linear-gradient(135deg, #ff66bb 0%, #a0006e 100%);
+      color: #fff;
+    }
+    /* Tetris standalone — teal gradient */
+    .btn-tetris {
+      background: linear-gradient(135deg, #00d4aa 0%, #007065 100%);
+      color: #fff;
+    }
+
+    /* Discovery badge on TV button */
+    .badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: #32cd32;
+      border-radius: 20px;
+      padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #fff;
+      display: none;
+    }
+    .badge.show { display: block; }
+
+    #scanStatus {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      margin-top: -8px;
+    }
+    .dot-pulse {
+      display: inline-block;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #ffd700;
+      animation: pulse 1.2s infinite;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+  </style>
+</head>
+<body>
+<div class="screen">
+  <h1>🎮 בקר משחקים</h1>
+  <div id="scanStatus">
+    מחפש משחקים ב-TV<span class="dot-pulse"></span>
+  </div>
+  <div class="game-grid">
+    <button class="btn btn-tv" id="btnTv" onclick="openController()">
+      <span class="badge" id="tvBadge">נמצא!</span>
+      <span class="btn-icon">📺</span>
+      <span>שלוט במשחק TV</span>
+      <span class="btn-subtitle">מצלמה + קול</span>
+    </button>
+    <button class="btn btn-balloon" onclick="openBalloon()">
+      <span class="btn-icon">🎈</span>
+      <span>בלונים כאן</span>
+      <span class="btn-subtitle">משחק מגע</span>
+    </button>
+    <button class="btn btn-tetris" onclick="openTetris()">
+      <span class="btn-icon">🟦</span>
+      <span>טטריס כאן</span>
+      <span class="btn-subtitle">שליטה בקול</span>
+    </button>
+  </div>
+</div>
+
+<script>
+const tvBadge  = document.getElementById('tvBadge');
+const scanStatus = document.getElementById('scanStatus');
+let gameCount = 0;
+
+window.onGameDiscovered = function(game) {
+  gameCount++;
+  tvBadge.classList.add('show');
+  scanStatus.textContent = 'נמצא: ' + labelFor(game.type);
+  scanStatus.style.color = '#32cd32';
+  // Store for controller page
+  localStorage.setItem('lastGame', JSON.stringify(game));
+};
+
+function labelFor(type) {
+  return type === 'HVGAME' ? 'משחק בלונים' :
+         type === 'GESTURE_GAME' ? 'משחק מחוות' :
+         type === 'TETRIS_GAME'  ? 'טטריס' : type;
+}
+
+function openController() {
+  window.location.href = '/controller.html';
+}
+function openBalloon() {
+  window.location.href = '/balloon_standalone.html';
+}
+function openTetris() {
+  window.location.href = '/tetris.html';
+}
+
+// Also poll Android for already-discovered games at startup
+(function pollGames() {
+  if (window.AndroidBridge) {
+    try {
+      const games = JSON.parse(AndroidBridge.getDiscoveredGamesJson() || '[]');
+      games.forEach(g => window.onGameDiscovered(g));
+    } catch(_) {}
+  }
+  // Only poll once at startup; subsequent discoveries come via callback
+})();
+</script>
+</body>
+</html>

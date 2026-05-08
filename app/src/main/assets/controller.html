@@ -1,0 +1,474 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Game Controller</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+
+    #webcam {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    #overlay {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+    }
+
+    .zone {
+      position: fixed; top: 0; bottom: 0; width: 45%;
+      display: flex; align-items: center; justify-content: center;
+      font: 900 clamp(48px,12vw,96px)/1 -apple-system, Arial, sans-serif;
+      color: rgba(255,255,255,0.08);
+      pointer-events: none;
+      transition: color 0.1s, background 0.1s;
+    }
+    #zoneLeft  { left: 0;  border-right: 2px solid rgba(255,255,255,0.06); }
+    #zoneRight { right: 0; border-left:  2px solid rgba(255,255,255,0.06); }
+    .zone.active { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.12); }
+
+    #status {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 8px 14px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font: 600 13px/1.4 -apple-system, Arial, sans-serif;
+      z-index: 10;
+      display: flex; align-items: center; gap: 8px;
+      flex-wrap: wrap;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .dot.searching { background: #ffd700; animation: pulse .8s infinite; }
+    .dot.connected { background: #32cd32; }
+    .dot.error     { background: #ff5050; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    #gameTag {
+      background: rgba(100,149,237,0.3);
+      border: 1px solid #6495ed;
+      border-radius: 10px;
+      padding: 2px 8px;
+      font-size: 11px;
+    }
+
+    /* Voice indicator (tetris mode) */
+    #voiceBar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.75);
+      padding: 10px 16px;
+      display: none;
+      align-items: center; gap: 12px;
+      z-index: 10;
+    }
+    #voiceBar.show { display: flex; }
+    #voiceDot { width: 12px; height: 12px; border-radius: 50%; background: #888; }
+    #voiceDot.listening { background: #32cd32; animation: pulse .6s infinite; }
+    #voiceText { font: 500 14px -apple-system,Arial,sans-serif; color: #fff; }
+    #voiceHeard { font: 700 18px -apple-system,Arial,sans-serif; color: #ffd700; margin-left: auto; }
+
+    /* IP manual input fallback */
+    #ipRow {
+      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+      display: none; gap: 8px; z-index: 10;
+      background: rgba(0,0,0,0.8); border-radius: 14px; padding: 10px 14px;
+    }
+    #ipRow.show { display: flex; }
+    #ipRow input {
+      width: 130px; padding: 8px 10px; border-radius: 10px;
+      border: 2px solid #444; background: #111; color: #fff;
+      font-size: 16px; text-align: center;
+    }
+    #ipRow input:focus { outline: none; border-color: #6495ed; }
+    #ipRow button {
+      padding: 8px 16px; border-radius: 10px; border: none;
+      background: #6495ed; color: #fff; font-size: 15px; font-weight: bold; cursor: pointer;
+    }
+    #backBtn {
+      position: fixed; top: 8px; right: 14px;
+      background: rgba(255,255,255,0.1); border: none; border-radius: 8px;
+      color: #fff; font-size: 13px; padding: 4px 10px; cursor: pointer; z-index: 20;
+    }
+  </style>
+</head>
+<body>
+<video id="webcam" autoplay playsinline muted></video>
+<canvas id="overlay"></canvas>
+<div id="zoneLeft"  class="zone">LEFT</div>
+<div id="zoneRight" class="zone">RIGHT</div>
+<div id="status">
+  <div class="dot searching" id="dot"></div>
+  <span id="statusText">מחפש משחק...</span>
+  <span id="gameTag" style="display:none"></span>
+</div>
+<div id="voiceBar">
+  <div id="voiceDot"></div>
+  <span id="voiceText">קול: כבוי</span>
+  <span id="voiceHeard"></span>
+</div>
+<div id="ipRow">
+  <input id="ipInput" type="text" placeholder="10.0.0.5" inputmode="decimal" autocomplete="off">
+  <button onclick="manualConnect()">חבר</button>
+</div>
+<button id="backBtn" onclick="history.back()">← חזור</button>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver }
+  from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
+// ── DOM refs ────────────────────────────────────────────────────────────────
+const webcam    = document.getElementById('webcam');
+const cvs       = document.getElementById('overlay');
+const ctx       = cvs.getContext('2d');
+const dotEl     = document.getElementById('dot');
+const statusTxt = document.getElementById('statusText');
+const gameTag   = document.getElementById('gameTag');
+const zoneLeft  = document.getElementById('zoneLeft');
+const zoneRight = document.getElementById('zoneRight');
+const voiceBar  = document.getElementById('voiceBar');
+const voiceDot  = document.getElementById('voiceDot');
+const voiceTxt  = document.getElementById('voiceText');
+const voiceHeard= document.getElementById('voiceHeard');
+const ipRow     = document.getElementById('ipRow');
+const ipInput   = document.getElementById('ipInput');
+
+function resize() { cvs.width = innerWidth; cvs.height = innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+// ── Game type ────────────────────────────────────────────────────────────────
+// HVGAME = balloon, GESTURE_GAME = gesture, TETRIS_GAME = tetris
+let gameMode = null;  // 'balloon' | 'gesture' | 'tetris'
+let currentGame = null;
+
+function modeFor(type) {
+  if (type === 'HVGAME')        return 'balloon';
+  if (type === 'GESTURE_GAME')  return 'gesture';
+  if (type === 'TETRIS_GAME')   return 'tetris';
+  return 'gesture';
+}
+function labelFor(type) {
+  if (type === 'HVGAME')        return '🎈 בלונים';
+  if (type === 'GESTURE_GAME')  return '🤚 מחוות';
+  if (type === 'TETRIS_GAME')   return '🟦 טטריס';
+  return type;
+}
+
+// ── WebSocket ────────────────────────────────────────────────────────────────
+let ws = null;
+
+function setStatus(msg, state) {
+  statusTxt.textContent = msg;
+  dotEl.className = 'dot ' + state;
+}
+
+function connectToGame(game) {
+  currentGame = game;
+  gameMode = modeFor(game.type);
+  gameTag.textContent = labelFor(game.type);
+  gameTag.style.display = '';
+  const saved = localStorage.getItem('gameCtrl_ip_' + game.type);
+  const ip = saved && saved === game.ip ? saved : game.ip;
+  localStorage.setItem('gameCtrl_ip_' + game.type, ip);
+  tryConnect(ip, game.port);
+  if (gameMode === 'tetris') initVoice();
+  if (gameMode === 'balloon' || gameMode === 'tetris') {
+    zoneLeft.textContent = 'שמאל';
+    zoneRight.textContent = 'ימין';
+  }
+}
+
+function tryConnect(ip, port) {
+  if (ws) { try { ws.close(); } catch(_) {} }
+  setStatus('מתחבר ל-' + ip + '...', 'searching');
+  ws = new WebSocket('ws://' + ip + ':' + port);
+  ws.onopen  = () => setStatus('מחובר ✓', 'connected');
+  ws.onclose = () => {
+    setStatus('נותק - מנסה שוב...', 'error');
+    setTimeout(() => tryConnect(ip, port), 2000);
+  };
+  ws.onerror = () => {};
+}
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify(obj));
+}
+
+window.manualConnect = function() {
+  const ip = ipInput.value.trim();
+  if (!ip || !currentGame) return;
+  ipRow.classList.remove('show');
+  localStorage.setItem('gameCtrl_ip_' + currentGame.type, ip);
+  tryConnect(ip, currentGame.port);
+};
+
+// ── Discovery ────────────────────────────────────────────────────────────────
+window.onGameDiscovered = function(game) {
+  if (!currentGame) connectToGame(game);
+};
+
+(function pollDiscovery() {
+  if (window.AndroidBridge) {
+    try {
+      const games = JSON.parse(AndroidBridge.getDiscoveredGamesJson() || '[]');
+      if (games.length && !currentGame) connectToGame(games[0]);
+    } catch(_) {}
+  }
+  if (!currentGame) setTimeout(pollDiscovery, 500);
+})();
+
+// Manual IP fallback after 4 seconds without discovery
+setTimeout(() => {
+  if (!currentGame) {
+    const lastGame = localStorage.getItem('lastGame');
+    if (lastGame) {
+      try { connectToGame(JSON.parse(lastGame)); return; } catch(_) {}
+    }
+    ipRow.classList.add('show');
+    setStatus('לא נמצא משחק - הזן IP ידנית', 'error');
+  }
+}, 4000);
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+async function startCamera() {
+  for (const c of [
+    { video: { facingMode: 'environment', width:{ideal:640}, height:{ideal:480} } },
+    { video: { width:{ideal:640}, height:{ideal:480} } },
+    { video: true },
+  ]) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(c);
+      webcam.srcObject = stream;
+      await new Promise(r => { webcam.onloadedmetadata = r; setTimeout(r, 3000); });
+      return true;
+    } catch(e) { console.warn('cam', e.name); }
+  }
+  return false;
+}
+
+// ── MediaPipe ────────────────────────────────────────────────────────────────
+let handLandmarker;
+
+async function init() {
+  setStatus('טוען מודל יד...', 'searching');
+  try {
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 2,
+      minHandDetectionConfidence: 0.4,
+      minHandPresenceConfidence: 0.4,
+      minTrackingConfidence: 0.4,
+    });
+  } catch(e) {
+    setStatus('שגיאת מודל: ' + e.message, 'error'); return;
+  }
+  if (!await startCamera()) {
+    setStatus('מצלמה נכשלה - בדוק הרשאות', 'error'); return;
+  }
+  setStatus('מוכן', 'connected');
+  requestAnimationFrame(loop);
+}
+
+// ── Gesture hysteresis ────────────────────────────────────────────────────────
+const RELEASE_FRAMES = 6;
+let leftHold = 0, rightHold = 0;
+let lastLeft = false, lastRight = false;
+
+// ── Frame capture (balloon mode only) ────────────────────────────────────────
+let frameCanvas, frameCtx, lastFrameTs = 0;
+const FRAME_INTERVAL = 50; // 20fps
+
+function initFrameCapture() {
+  frameCanvas = document.createElement('canvas');
+  frameCanvas.width = 400; frameCanvas.height = 300;
+  frameCtx = frameCanvas.getContext('2d');
+}
+
+function captureFrame(ts, isPortrait) {
+  if (ts - lastFrameTs < FRAME_INTERVAL) return;
+  lastFrameTs = ts;
+  frameCtx.save();
+  if (isPortrait) {
+    frameCtx.translate(frameCanvas.width / 2, frameCanvas.height / 2);
+    frameCtx.rotate(-Math.PI / 2);
+    frameCtx.scale(-1, 1);
+    frameCtx.drawImage(webcam, -frameCanvas.height/2, -frameCanvas.width/2,
+                       frameCanvas.height, frameCanvas.width);
+  } else {
+    frameCtx.translate(frameCanvas.width, 0);
+    frameCtx.scale(-1, 1);
+    frameCtx.drawImage(webcam, 0, 0, frameCanvas.width, frameCanvas.height);
+  }
+  frameCtx.restore();
+  const data = frameCanvas.toDataURL('image/jpeg', 0.42).split(',')[1];
+  send({ type: 'frame', data });
+}
+
+// ── Main detection loop ───────────────────────────────────────────────────────
+function loop(ts) {
+  requestAnimationFrame(loop);
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+  if (!handLandmarker || webcam.readyState < 2) return;
+
+  let res;
+  try { res = handLandmarker.detectForVideo(webcam, ts); } catch(_) { return; }
+
+  const isPortrait = webcam.videoHeight > webcam.videoWidth;
+  let detectedLeft = false, detectedRight = false;
+  const fingers = [];
+
+  if (res.landmarks && res.landmarks.length > 0) {
+    for (const lm of res.landmarks) {
+      // Wrist (lm[0]) — mirrored x — for arm gesture detection
+      const wx = isPortrait ? lm[0].y          : 1 - lm[0].x;
+      const wy = isPortrait ? lm[0].x          : lm[0].y;
+
+      if (wy < 0.72) {
+        if (wx < 0.5)  detectedLeft  = true;
+        if (wx >= 0.5) detectedRight = true;
+      }
+
+      // Draw wrist dot
+      const dotX = wx * cvs.width;
+      const dotY = wy * cvs.height;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 14, 0, Math.PI * 2);
+      ctx.fillStyle = wy < 0.72 ? (wx < 0.5 ? '#44ff88' : '#4488ff') : 'rgba(255,255,255,0.25)';
+      ctx.fill();
+
+      // Balloon mode: track index finger tip (lm[8])
+      if (gameMode === 'balloon') {
+        const fx = isPortrait ? lm[8].y : 1 - lm[8].x;
+        const fy = isPortrait ? lm[8].x : lm[8].y;
+        fingers.push({ x: fx, y: fy });
+        // Draw finger star
+        drawStar(ctx, fx * cvs.width, fy * cvs.height, '#FFD700', 10);
+      }
+    }
+  }
+
+  // Gesture state with hysteresis
+  if (detectedLeft)  leftHold  = RELEASE_FRAMES;
+  else               leftHold  = Math.max(0, leftHold  - 1);
+  if (detectedRight) rightHold = RELEASE_FRAMES;
+  else               rightHold = Math.max(0, rightHold - 1);
+
+  const left  = leftHold  > 0;
+  const right = rightHold > 0;
+
+  zoneLeft.classList.toggle('active',  left);
+  zoneRight.classList.toggle('active', right);
+
+  if (left !== lastLeft || right !== lastRight) {
+    lastLeft = left; lastRight = right;
+    send({ type: 'gesture', left, right });
+
+    // Tetris: translate persistent gesture to command
+    if (gameMode === 'tetris') {
+      if (left  && !right) send({ type: 'voice', cmd: 'left'  });
+      if (right && !left)  send({ type: 'voice', cmd: 'right' });
+    }
+  }
+
+  // Balloon mode extras
+  if (gameMode === 'balloon') {
+    if (fingers.length > 0) send({ type: 'pose', fingers });
+    captureFrame(ts, isPortrait);
+  }
+}
+
+function drawStar(c, x, y, color, r) {
+  c.save();
+  c.translate(x, y);
+  c.fillStyle = color;
+  c.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = (i * 4 * Math.PI / 5) - Math.PI / 2;
+    const b = a + Math.PI / 5;
+    c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    c.lineTo(Math.cos(b) * r * 0.4, Math.sin(b) * r * 0.4);
+  }
+  c.closePath();
+  c.fill();
+  c.restore();
+}
+
+// ── Voice recognition (tetris + balloon modes) ───────────────────────────────
+const TETRIS_CMDS = {
+  'שמאל':'left','ימין':'right','סובב':'rotate','נפול':'drop',
+  'מטה':'down','השהה':'pause','המשך':'resume','התחל':'restart',
+  'left':'left','right':'right','rotate':'rotate','drop':'drop',
+  'down':'down','pause':'pause','resume':'resume','restart':'restart',
+};
+
+const BALLOON_LETTERS = {
+  'אלף':'א','בית':'ב','גימל':'ג','דלת':'ד','הא':'ה','וו':'ו',
+  'זין':'ז','חית':'ח','טית':'ט','יוד':'י','כף':'כ','למד':'ל',
+  'מם':'מ','נון':'נ','סמך':'ס','עין':'ע','פא':'פ','צדי':'צ',
+  'קוף':'ק','ריש':'ר','שין':'ש','תו':'ת',
+};
+
+let recognition = null;
+let voiceActive = false;
+
+function initVoice() {
+  voiceBar.classList.add('show');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { voiceTxt.textContent = 'קול: לא נתמך'; return; }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = gameMode === 'tetris' ? 'he-IL' : 'he-IL';
+  recognition.maxAlternatives = 3;
+
+  recognition.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (!e.results[i].isFinal) continue;
+      const text = e.results[i][0].transcript.trim();
+      voiceHeard.textContent = text;
+      setTimeout(() => { voiceHeard.textContent = ''; }, 1500);
+      handleVoiceResult(text);
+    }
+  };
+  recognition.onstart  = () => { voiceActive = true;  voiceDot.className = 'listening'; voiceTxt.textContent = 'קול: פעיל'; };
+  recognition.onend    = () => { voiceActive = false; voiceDot.className = '';          voiceTxt.textContent = 'קול: כבוי';
+    setTimeout(startVoice, 300); };
+  recognition.onerror  = (e) => { if (e.error !== 'no-speech') setTimeout(startVoice, 1000); };
+  startVoice();
+}
+
+function startVoice() {
+  if (!recognition || voiceActive) return;
+  try { recognition.start(); } catch(_) {}
+}
+
+function handleVoiceResult(text) {
+  const lower = text.toLowerCase();
+  if (gameMode === 'tetris') {
+    const cmd = TETRIS_CMDS[lower] || TETRIS_CMDS[text];
+    if (cmd) send({ type: 'voice', cmd });
+  } else if (gameMode === 'balloon') {
+    const letter = BALLOON_LETTERS[lower] || BALLOON_LETTERS[text];
+    if (letter) send({ type: 'voice', letter });
+  }
+}
+
+// ── Init balloon frame capture ─────────────────────────────────────────────
+setTimeout(() => {
+  if (gameMode === 'balloon') initFrameCapture();
+}, 1000);
+
+init();
+</script>
+</body>
+</html>

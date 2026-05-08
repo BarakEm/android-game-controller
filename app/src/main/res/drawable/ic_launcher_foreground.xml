@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Game controller / joystick icon -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+
+    <!-- Controller body -->
+    <path
+        android:fillColor="#6C63FF"
+        android:pathData="M22,44 Q22,34 32,34 L76,34 Q86,34 86,44 L86,68 Q86,76 78,76 L68,76 Q64,76 62,72 L58,64 L50,64 L46,72 Q44,76 40,76 L30,76 Q22,76 22,68 Z"/>
+
+    <!-- Left bumper grip -->
+    <path
+        android:fillColor="#5A52D5"
+        android:pathData="M22,44 Q22,38 28,36 L22,44 Z"/>
+
+    <!-- Right bumper grip -->
+    <path
+        android:fillColor="#5A52D5"
+        android:pathData="M86,44 Q86,38 80,36 L86,44 Z"/>
+
+    <!-- D-pad left arrow -->
+    <path
+        android:fillColor="#E0E0FF"
+        android:pathData="M37,55 L33,51 L33,59 Z"/>
+    <!-- D-pad right arrow -->
+    <path
+        android:fillColor="#E0E0FF"
+        android:pathData="M47,55 L51,51 L51,59 Z"/>
+    <!-- D-pad up arrow -->
+    <path
+        android:fillColor="#E0E0FF"
+        android:pathData="M42,50 L38,54 L46,54 Z"/>
+    <!-- D-pad down arrow -->
+    <path
+        android:fillColor="#E0E0FF"
+        android:pathData="M42,60 L38,56 L46,56 Z"/>
+
+    <!-- A button (green) -->
+    <path
+        android:fillColor="#32CD32"
+        android:pathData="M72,54 A5,5 0 1,1 72,53.9 Z"/>
+    <!-- B button (red) -->
+    <path
+        android:fillColor="#FF5050"
+        android:pathData="M63,48 A5,5 0 1,1 63,47.9 Z"/>
+    <!-- X button (blue) -->
+    <path
+        android:fillColor="#4488FF"
+        android:pathData="M63,60 A5,5 0 1,1 63,59.9 Z"/>
+    <!-- Y button (yellow) -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M54,54 A5,5 0 1,1 54,53.9 Z"/>
+
+    <!-- Center home button -->
+    <path
+        android:fillColor="#9C94FF"
+        android:pathData="M54,44 A4,4 0 1,1 54,43.9 Z"/>
+
+</vector>
