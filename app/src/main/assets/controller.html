@@ -371,12 +371,6 @@ function loop(ts) {
   if (left !== lastLeft || right !== lastRight) {
     lastLeft = left; lastRight = right;
     send({ type: 'gesture', left, right });
-
-    // Tetris: translate persistent gesture to command
-    if (gameMode === 'tetris') {
-      if (left  && !right) send({ type: 'voice', cmd: 'left'  });
-      if (right && !left)  send({ type: 'voice', cmd: 'right' });
-    }
   }
 
   // Balloon mode extras

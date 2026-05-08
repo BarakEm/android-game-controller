@@ -102,6 +102,9 @@ function Build-Apk([string]$Dir, [string]$Label) {
         "sdk.dir=$sdkDir" | Set-Content $localProps
         Write-Host "Created $localProps"
     }
+    # Force-delete all build dirs before Gradle runs — avoids Windows file-lock failures on clean
+    Get-ChildItem -Path $Dir -Filter "build" -Recurse -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { cmd /c rmdir /s /q $_.FullName 2>$null }
     Push-Location $Dir
     Write-Host "Building $Label..." -ForegroundColor Cyan
     & .\gradlew.bat assembleDebug
