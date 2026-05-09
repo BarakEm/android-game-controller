@@ -179,17 +179,45 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public int getAssetPort() { return ASSET_PORT; }
+
+        @JavascriptInterface
+        public void closeApp() { runOnUiThread(() -> finish()); }
     }
 
-    @Override protected void onResume() { super.onResume(); webView.onResume(); }
-    @Override protected void onPause()  { webView.onPause(); super.onPause(); }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Restart UDP listeners so we pick up whichever TV game just came to foreground.
+        // This also lets the controller reconnect automatically after the phone was backgrounded.
+        synchronized (gamesLock) { discoveredGames.clear(); }
+        if (udpBalloonThread == null || !udpBalloonThread.isAlive())
+            udpBalloonThread = startUdpThread("HVGAME",       UDP_BALLOON);
+        if (udpGestureThread == null || !udpGestureThread.isAlive())
+            udpGestureThread = startUdpThread("GESTURE_GAME", UDP_GESTURE);
+        if (udpTetrisThread  == null || !udpTetrisThread.isAlive())
+            udpTetrisThread  = startUdpThread("TETRIS_GAME",  UDP_TETRIS);
+        webView.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        webView.onPause();
+        // Stop UDP listeners while backgrounded — avoids acting on stale broadcasts.
+        for (Thread t : new Thread[]{udpBalloonThread, udpGestureThread, udpTetrisThread})
+            if (t != null) t.interrupt();
+        for (DatagramSocket s : new DatagramSocket[]{udpBalloon, udpGesture, udpTetris})
+            if (s != null) s.close();
+        udpBalloon = null; udpGesture = null; udpTetris = null;
+        udpBalloonThread = null; udpGestureThread = null; udpTetrisThread = null;
+        super.onPause();
+    }
 
     @Override
     protected void onDestroy() {
-        Thread[] threads = {udpBalloonThread, udpGestureThread, udpTetrisThread};
-        DatagramSocket[] sockets = {udpBalloon, udpGesture, udpTetris};
-        for (Thread t : threads)   { if (t != null) t.interrupt(); }
-        for (DatagramSocket s : sockets) { if (s != null) s.close(); }
+        for (Thread t : new Thread[]{udpBalloonThread, udpGestureThread, udpTetrisThread})
+            if (t != null) t.interrupt();
+        for (DatagramSocket s : new DatagramSocket[]{udpBalloon, udpGesture, udpTetris})
+            if (s != null) s.close();
         if (assetServer != null) assetServer.stop();
         webView.destroy();
         super.onDestroy();

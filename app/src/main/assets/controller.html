@@ -11,7 +11,8 @@
     #webcam {
       position: fixed; inset: 0;
       width: 100%; height: 100%;
-      object-fit: cover;
+      object-fit: contain;   /* no cropping — full camera visible */
+      background: #000;
       transform: scaleX(-1);
     }
     #overlay {
@@ -23,13 +24,28 @@
       position: fixed; top: 0; bottom: 0; width: 45%;
       display: flex; align-items: center; justify-content: center;
       font: 900 clamp(48px,12vw,96px)/1 -apple-system, Arial, sans-serif;
-      color: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.1);
       pointer-events: none;
-      transition: color 0.1s, background 0.1s;
+      transition: color 0.12s, background 0.12s;
     }
-    #zoneLeft  { left: 0;  border-right: 2px solid rgba(255,255,255,0.06); }
-    #zoneRight { right: 0; border-left:  2px solid rgba(255,255,255,0.06); }
-    .zone.active { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.12); }
+    #zoneLeft  { left: 0;  border-right: 2px solid rgba(255,255,255,0.07); }
+    #zoneRight { right: 0; border-left:  2px solid rgba(255,255,255,0.07); }
+    .zone.active { color: rgba(255,255,255,0.9); background: rgba(100,180,255,0.18); }
+
+    /* Tetris rotate/drop zones — top and bottom bands */
+    .tetris-zone {
+      position: fixed; left: 0; right: 0;
+      display: none;
+      align-items: center; justify-content: center;
+      font: 900 clamp(24px,5vw,48px)/1 -apple-system, Arial, sans-serif;
+      color: rgba(255,255,255,0.1);
+      pointer-events: none;
+      transition: color 0.12s, background 0.12s;
+    }
+    #zoneTop    { top: 0;    height: 22%; border-bottom: 2px solid rgba(255,255,255,0.07); }
+    #zoneBottom { bottom: 0; height: 20%; border-top:    2px solid rgba(255,255,255,0.07); }
+    .tetris-zone.show   { display: flex; }
+    .tetris-zone.active { color: rgba(255,255,255,0.9); background: rgba(100,255,180,0.2); }
 
     #status {
       position: fixed; top: 0; left: 0; right: 0;
@@ -97,8 +113,10 @@
 <body>
 <video id="webcam" autoplay playsinline muted></video>
 <canvas id="overlay"></canvas>
-<div id="zoneLeft"  class="zone">LEFT</div>
-<div id="zoneRight" class="zone">RIGHT</div>
+<div id="zoneLeft"  class="zone">◀</div>
+<div id="zoneRight" class="zone">▶</div>
+<div id="zoneTop"    class="tetris-zone">↑ ROTATE</div>
+<div id="zoneBottom" class="tetris-zone">↓ DROP</div>
 <div id="status">
   <div class="dot searching" id="dot"></div>
   <span id="statusText">מחפש משחק...</span>
@@ -126,8 +144,10 @@ const ctx       = cvs.getContext('2d');
 const dotEl     = document.getElementById('dot');
 const statusTxt = document.getElementById('statusText');
 const gameTag   = document.getElementById('gameTag');
-const zoneLeft  = document.getElementById('zoneLeft');
-const zoneRight = document.getElementById('zoneRight');
+const zoneLeft   = document.getElementById('zoneLeft');
+const zoneRight  = document.getElementById('zoneRight');
+const zoneTop    = document.getElementById('zoneTop');
+const zoneBottom = document.getElementById('zoneBottom');
 const voiceBar  = document.getElementById('voiceBar');
 const voiceDot  = document.getElementById('voiceDot');
 const voiceTxt  = document.getElementById('voiceText');
@@ -175,9 +195,12 @@ function connectToGame(game) {
   tryConnect(ip, game.port);
   if (gameMode === 'tetris') initVoice();
   if (gameMode === 'balloon' || gameMode === 'tetris') {
-    zoneLeft.textContent = 'שמאל';
-    zoneRight.textContent = 'ימין';
+    zoneLeft.textContent  = '◀ שמאל';
+    zoneRight.textContent = 'ימין ▶';
   }
+  const isTetris = gameMode === 'tetris';
+  zoneTop.classList.toggle('show', isTetris);
+  zoneBottom.classList.toggle('show', isTetris);
 }
 
 function tryConnect(ip, port) {
@@ -206,8 +229,12 @@ window.manualConnect = function() {
 };
 
 // ── Discovery ────────────────────────────────────────────────────────────────
+// Always switch to the most-recently broadcasting game.
+// TV apps stop broadcasting on onPause(), so the first new UDP packet
+// after switching apps identifies the newly foregrounded game.
 window.onGameDiscovered = function(game) {
-  if (!currentGame) connectToGame(game);
+  if (!currentGame || currentGame.type !== game.type || currentGame.ip !== game.ip)
+    connectToGame(game);
 };
 
 (function pollDiscovery() {
@@ -235,8 +262,9 @@ setTimeout(() => {
 // ── Camera ────────────────────────────────────────────────────────────────────
 async function startCamera() {
   for (const c of [
-    { video: { facingMode: 'environment', width:{ideal:640}, height:{ideal:480} } },
-    { video: { width:{ideal:640}, height:{ideal:480} } },
+    { video: { facingMode: 'user', width:{ideal:1280}, height:{ideal:720} } },
+    { video: { facingMode: 'user', width:{ideal:640},  height:{ideal:480} } },
+    { video: { width:{ideal:1280}, height:{ideal:720} } },
     { video: true },
   ]) {
     try {
@@ -280,8 +308,8 @@ async function init() {
 
 // ── Gesture hysteresis ────────────────────────────────────────────────────────
 const RELEASE_FRAMES = 6;
-let leftHold = 0, rightHold = 0;
-let lastLeft = false, lastRight = false;
+let leftHold = 0, rightHold = 0, rotateHold = 0, dropHold = 0;
+let lastLeft = false, lastRight = false, lastRotate = false, lastDrop = false;
 
 // ── Frame capture (balloon mode only) ────────────────────────────────────────
 let frameCanvas, frameCtx, lastFrameTs = 0;
@@ -326,51 +354,59 @@ function loop(ts) {
   let detectedLeft = false, detectedRight = false;
   const fingers = [];
 
+  let detectedRotate = false, detectedDrop = false;
+
   if (res.landmarks && res.landmarks.length > 0) {
     for (const lm of res.landmarks) {
-      // Wrist (lm[0]) — mirrored x — for arm gesture detection
-      const wx = isPortrait ? lm[0].y          : 1 - lm[0].x;
-      const wy = isPortrait ? lm[0].x          : lm[0].y;
+      // Index finger tip (lm[8]) — same proven approach as balloon mode
+      const fx = isPortrait ? lm[8].y : 1 - lm[8].x;
+      const fy = isPortrait ? lm[8].x : lm[8].y;
 
-      if (wy < 0.72) {
-        if (wx < 0.5)  detectedLeft  = true;
-        if (wx >= 0.5) detectedRight = true;
+      // Left/right detection by horizontal finger position
+      if (fx < 0.5)  detectedLeft  = true;
+      if (fx >= 0.5) detectedRight = true;
+
+      // Tetris: rotate (finger top) / drop (finger bottom)
+      if (gameMode === 'tetris') {
+        if (fy < 0.25) detectedRotate = true;
+        if (fy > 0.78) detectedDrop   = true;
       }
 
-      // Draw wrist dot
-      const dotX = wx * cvs.width;
-      const dotY = wy * cvs.height;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, 14, 0, Math.PI * 2);
-      ctx.fillStyle = wy < 0.72 ? (wx < 0.5 ? '#44ff88' : '#4488ff') : 'rgba(255,255,255,0.25)';
-      ctx.fill();
+      // Draw finger cursor in all modes
+      drawFingerCursor(ctx, fx * cvs.width, fy * cvs.height);
 
-      // Balloon mode: track index finger tip (lm[8])
-      if (gameMode === 'balloon') {
-        const fx = isPortrait ? lm[8].y : 1 - lm[8].x;
-        const fy = isPortrait ? lm[8].x : lm[8].y;
-        fingers.push({ x: fx, y: fy });
-        // Draw finger star
-        drawStar(ctx, fx * cvs.width, fy * cvs.height, '#FFD700', 10);
-      }
+      // Balloon mode: collect finger positions for pose data
+      if (gameMode === 'balloon') fingers.push({ x: fx, y: fy });
     }
   }
 
   // Gesture state with hysteresis
-  if (detectedLeft)  leftHold  = RELEASE_FRAMES;
-  else               leftHold  = Math.max(0, leftHold  - 1);
-  if (detectedRight) rightHold = RELEASE_FRAMES;
-  else               rightHold = Math.max(0, rightHold - 1);
+  if (detectedLeft)   leftHold   = RELEASE_FRAMES; else leftHold   = Math.max(0, leftHold   - 1);
+  if (detectedRight)  rightHold  = RELEASE_FRAMES; else rightHold  = Math.max(0, rightHold  - 1);
+  if (detectedRotate) rotateHold = RELEASE_FRAMES; else rotateHold = Math.max(0, rotateHold - 1);
+  if (detectedDrop)   dropHold   = RELEASE_FRAMES; else dropHold   = Math.max(0, dropHold   - 1);
 
-  const left  = leftHold  > 0;
-  const right = rightHold > 0;
+  const left   = leftHold   > 0;
+  const right  = rightHold  > 0;
+  const rotate = rotateHold > 0;
+  const drop   = dropHold   > 0;
 
-  zoneLeft.classList.toggle('active',  left);
-  zoneRight.classList.toggle('active', right);
+  zoneLeft.classList.toggle('active',   left);
+  zoneRight.classList.toggle('active',  right);
+  zoneTop.classList.toggle('active',    rotate);
+  zoneBottom.classList.toggle('active', drop);
 
   if (left !== lastLeft || right !== lastRight) {
     lastLeft = left; lastRight = right;
     send({ type: 'gesture', left, right });
+  }
+  if (rotate !== lastRotate) {
+    lastRotate = rotate;
+    if (rotate) send({ type: 'voice', cmd: 'rotate' });
+  }
+  if (drop !== lastDrop) {
+    lastDrop = drop;
+    if (drop) send({ type: 'voice', cmd: 'drop' });
   }
 
   // Balloon mode extras
@@ -380,18 +416,22 @@ function loop(ts) {
   }
 }
 
-function drawStar(c, x, y, color, r) {
+function drawFingerCursor(c, x, y) {
+  // Glow halo
   c.save();
-  c.translate(x, y);
-  c.fillStyle = color;
+  c.shadowBlur = 22;
+  c.shadowColor = 'rgba(255,120,200,0.75)';
+  // Outer ring
   c.beginPath();
-  for (let i = 0; i < 5; i++) {
-    const a = (i * 4 * Math.PI / 5) - Math.PI / 2;
-    const b = a + Math.PI / 5;
-    c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-    c.lineTo(Math.cos(b) * r * 0.4, Math.sin(b) * r * 0.4);
-  }
-  c.closePath();
+  c.arc(x, y, 26, 0, Math.PI * 2);
+  c.strokeStyle = 'rgba(255,255,255,0.72)';
+  c.lineWidth = 3;
+  c.stroke();
+  c.shadowBlur = 0;
+  // Inner dot
+  c.beginPath();
+  c.arc(x, y, 10, 0, Math.PI * 2);
+  c.fillStyle = 'rgba(255,80,180,0.95)';
   c.fill();
   c.restore();
 }
