@@ -1,0 +1,265 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Gesture Detection Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #0d0d1a; color: #fff; font: 14px/1.5 -apple-system, Arial, sans-serif; padding: 16px; }
+    h1 { font-size: 20px; margin-bottom: 16px; color: #a0a0ff; }
+    h2 { font-size: 15px; margin: 20px 0 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+    .pass { color: #32cd32; }
+    .fail { color: #ff5050; }
+    .test-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #1a1a2e; font-size: 13px; }
+    .icon { font-size: 18px; width: 24px; text-align: center; }
+    .desc { flex: 1; }
+    .expected, .got { font-family: monospace; font-size: 12px; color: #888; }
+    .got.mismatch { color: #ff5050; }
+
+    #liveSection { margin-top: 24px; }
+    #liveSection video { display: none; }
+    #liveCanvas { width: 100%; max-width: 360px; border-radius: 12px; background: #111; display: block; margin: 10px 0; }
+    .stat { font: 700 18px monospace; margin: 4px 0; }
+    .stat span { color: #ffd700; }
+    .zone-indicator { display: flex; gap: 10px; margin: 8px 0; }
+    .zone-box { flex: 1; height: 44px; border-radius: 10px; background: #1a1a2e; border: 2px solid #333; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; transition: background 0.1s, border-color 0.1s; }
+    .zone-box.active { background: rgba(255,255,255,0.15); border-color: #ffd700; color: #ffd700; }
+    .zone-tetris { display: flex; gap: 10px; margin: 6px 0; }
+    .zone-tetris .zone-box { font-size: 12px; flex: 1; height: 36px; }
+    #startLive { margin-top: 10px; padding: 10px 24px; background: #6c63ff; border: none; border-radius: 12px; color: #fff; font: 700 14px -apple-system, Arial; cursor: pointer; }
+    #startLive:active { filter: brightness(1.2); }
+    #liveStatus { font-size: 12px; color: #888; margin-top: 6px; }
+    #backBtn { position: fixed; top: 12px; right: 12px; background: rgba(255,255,255,0.1); border: none; border-radius: 8px; color: #fff; font-size: 13px; padding: 4px 10px; cursor: pointer; }
+  </style>
+</head>
+<body>
+<button id="backBtn" onclick="history.back()">← Back</button>
+<h1>🧪 Gesture Detection Test</h1>
+
+<h2>Unit Tests — Synthetic Landmarks</h2>
+<div id="unitTests"></div>
+
+<div id="liveSection">
+  <h2>Live Camera Test</h2>
+  <p style="font-size:12px;color:#888;margin-bottom:8px">Point your index finger at the camera to verify detection. Front camera required.</p>
+  <button id="startLive">▶ Start Camera</button>
+  <div id="liveStatus"></div>
+  <video id="liveVideo" autoplay playsinline muted></video>
+  <canvas id="liveCanvas" width="360" height="270"></canvas>
+  <div class="stat">Finger: <span id="statFx">—</span>, <span id="statFy">—</span></div>
+  <div class="stat">Orientation: <span id="statOrient">—</span></div>
+  <div class="zone-indicator">
+    <div class="zone-box" id="zoneLiveLeft">← LEFT</div>
+    <div class="zone-box" id="zoneLiveRight">RIGHT →</div>
+  </div>
+  <div class="zone-tetris">
+    <div class="zone-box" id="zoneLiveRotate">↺ ROTATE (top)</div>
+    <div class="zone-box" id="zoneLiveDrop">▼ DROP (bottom)</div>
+  </div>
+  <div id="liveEvents" style="font-size:12px;color:#aaa;margin-top:8px;min-height:40px"></div>
+</div>
+
+<script type="module">
+// ── Gesture logic (mirror of controller.html) ─────────────────────────────────
+// Returns {fx, fy, left, right, rotate, drop} given landmark array + isPortrait flag
+function detectGesture(lm, isPortrait) {
+  const fx = isPortrait ? lm[8].y : 1 - lm[8].x;
+  const fy = isPortrait ? lm[8].x : lm[8].y;
+  return {
+    fx: +fx.toFixed(3),
+    fy: +fy.toFixed(3),
+    left:   fx < 0.5,
+    right:  fx >= 0.5,
+    rotate: fy < 0.25,
+    drop:   fy > 0.78,
+  };
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+// Each landmark array is 21 points; we only use index [8] (index finger tip).
+// All other points are placeholders.
+function makeLm(x8, y8) {
+  const lm = Array.from({length: 21}, () => ({x: 0.5, y: 0.5, z: 0}));
+  lm[8] = {x: x8, y: y8, z: 0};
+  return lm;
+}
+
+const TESTS = [
+  // [description, lm, isPortrait, expectedLeft, expectedRight, expectedRotate, expectedDrop]
+  ['Landscape: finger left half, mid-height',  makeLm(0.8, 0.5), false, true,  false, false, false],
+  ['Landscape: finger right half, mid-height', makeLm(0.2, 0.5), false, false, true,  false, false],
+  ['Landscape: finger top → rotate',           makeLm(0.8, 0.15), false, true, false, true,  false],
+  ['Landscape: finger bottom → drop',          makeLm(0.8, 0.85), false, true, false, false, true ],
+  ['Portrait:  finger left half, mid-height',  makeLm(0.5, 0.25), true,  true, false, false, false],
+  ['Portrait:  finger right half, mid-height', makeLm(0.5, 0.75), true,  false, true,  false, false],
+  ['Portrait:  finger top → rotate',           makeLm(0.1, 0.5),  true,  true, false, true,  false],
+  ['Portrait:  finger bottom → drop',          makeLm(0.9, 0.5),  true,  false, true,  false, true ],
+];
+
+const container = document.getElementById('unitTests');
+let allPassed = true;
+
+for (const [desc, lm, portrait, expLeft, expRight, expRotate, expDrop] of TESTS) {
+  const r = detectGesture(lm, portrait);
+  const pass = r.left === expLeft && r.right === expRight && r.rotate === expRotate && r.drop === expDrop;
+  if (!pass) allPassed = false;
+  const expStr = `L:${+expLeft} R:${+expRight} ROT:${+expRotate} DRP:${+expDrop}`;
+  const gotStr = `L:${+r.left} R:${+r.right} ROT:${+r.rotate} DRP:${+r.drop}`;
+  container.insertAdjacentHTML('beforeend', `
+    <div class="test-row">
+      <span class="icon ${pass ? 'pass' : 'fail'}">${pass ? '✅' : '❌'}</span>
+      <span class="desc">${desc}</span>
+      <span class="got ${pass ? '' : 'mismatch'}">${gotStr}</span>
+    </div>`);
+}
+
+container.insertAdjacentHTML('beforeend', `
+  <div class="test-row" style="margin-top:6px;border-top:2px solid #333;padding-top:8px">
+    <span class="icon ${allPassed ? 'pass' : 'fail'}" style="font-size:22px">${allPassed ? '✅' : '❌'}</span>
+    <span class="desc" style="font-weight:700">${allPassed ? 'All tests passed' : 'Some tests FAILED — check above'}</span>
+  </div>`);
+
+// ── Live camera test ──────────────────────────────────────────────────────────
+import { HandLandmarker, FilesetResolver }
+  from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
+const video   = document.getElementById('liveVideo');
+const canvas  = document.getElementById('liveCanvas');
+const ctx     = canvas.getContext('2d');
+const status  = document.getElementById('liveStatus');
+const events  = document.getElementById('liveEvents');
+const statFx  = document.getElementById('statFx');
+const statFy  = document.getElementById('statFy');
+const statOrient = document.getElementById('statOrient');
+const zLL = document.getElementById('zoneLiveLeft');
+const zLR = document.getElementById('zoneLiveRight');
+const zLRot = document.getElementById('zoneLiveRotate');
+const zLDrp = document.getElementById('zoneLiveDrop');
+
+let handLandmarker = null;
+
+function logEvent(msg) {
+  const t = new Date().toLocaleTimeString();
+  events.innerHTML = `<b>[${t}]</b> ${msg}<br>` + events.innerHTML;
+  if (events.children.length > 8) events.removeChild(events.lastChild);
+}
+
+document.getElementById('startLive').addEventListener('click', async () => {
+  document.getElementById('startLive').disabled = true;
+  status.textContent = 'Loading hand model…';
+  try {
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 1,
+      minHandDetectionConfidence: 0.4,
+      minHandPresenceConfidence: 0.4,
+      minTrackingConfidence: 0.4,
+    });
+  } catch(e) {
+    status.textContent = 'Model failed: ' + e.message; return;
+  }
+
+  status.textContent = 'Starting camera…';
+  for (const c of [
+    { video: { facingMode: 'user', width:{ideal:640}, height:{ideal:480} } },
+    { video: { width:{ideal:640}, height:{ideal:480} } },
+    { video: true },
+  ]) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(c);
+      video.srcObject = stream;
+      await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 3000); });
+      status.textContent = 'Camera active — point your finger!';
+      requestAnimationFrame(liveLoop);
+      return;
+    } catch(e) { console.warn(e.name); }
+  }
+  status.textContent = 'Camera failed — check permissions';
+});
+
+const RELEASE_FRAMES = 6;
+let leftHold = 0, rightHold = 0, rotateHold = 0, dropHold = 0;
+let lastLeft = false, lastRight = false, lastRotate = false, lastDrop = false;
+
+function liveLoop(ts) {
+  requestAnimationFrame(liveLoop);
+  if (!handLandmarker || video.readyState < 2) return;
+
+  let res;
+  try { res = handLandmarker.detectForVideo(video, ts); } catch(_) { return; }
+
+  const isPortrait = video.videoHeight > video.videoWidth;
+  statOrient.textContent = isPortrait ? 'portrait' : 'landscape';
+
+  // Draw mirrored camera frame
+  ctx.save();
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  let detectedLeft = false, detectedRight = false;
+  let detectedRotate = false, detectedDrop = false;
+
+  if (res.landmarks && res.landmarks.length > 0) {
+    for (const lm of res.landmarks) {
+      const g = detectGesture(lm, isPortrait);
+      statFx.textContent = g.fx.toFixed(3);
+      statFy.textContent = g.fy.toFixed(3);
+      if (g.left)   detectedLeft   = true;
+      if (g.right)  detectedRight  = true;
+      if (g.rotate) detectedRotate = true;
+      if (g.drop)   detectedDrop   = true;
+
+      // Draw finger star
+      const px = g.fx * canvas.width;
+      const py = g.fy * canvas.height;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.fillStyle = '#FFD700';
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const a = (i * 4 * Math.PI / 5) - Math.PI / 2;
+        const b = a + Math.PI / 5;
+        ctx.lineTo(Math.cos(a) * 12, Math.sin(a) * 12);
+        ctx.lineTo(Math.cos(b) * 4.8, Math.sin(b) * 4.8);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  } else {
+    statFx.textContent = '—';
+    statFy.textContent = '—';
+  }
+
+  if (detectedLeft)   leftHold   = RELEASE_FRAMES; else leftHold   = Math.max(0, leftHold   - 1);
+  if (detectedRight)  rightHold  = RELEASE_FRAMES; else rightHold  = Math.max(0, rightHold  - 1);
+  if (detectedRotate) rotateHold = RELEASE_FRAMES; else rotateHold = Math.max(0, rotateHold - 1);
+  if (detectedDrop)   dropHold   = RELEASE_FRAMES; else dropHold   = Math.max(0, dropHold   - 1);
+
+  const left   = leftHold   > 0;
+  const right  = rightHold  > 0;
+  const rotate = rotateHold > 0;
+  const drop   = dropHold   > 0;
+
+  zLL.classList.toggle('active', left);
+  zLR.classList.toggle('active', right);
+  zLRot.classList.toggle('active', rotate);
+  zLDrp.classList.toggle('active', drop);
+
+  if (left !== lastLeft)   { lastLeft   = left;   logEvent(left   ? 'LEFT → true  (gesture sent)'   : 'LEFT → false'); }
+  if (right !== lastRight) { lastRight  = right;  logEvent(right  ? 'RIGHT → true (gesture sent)'   : 'RIGHT → false'); }
+  if (rotate !== lastRotate) { lastRotate = rotate; if (rotate) logEvent('ROTATE command sent'); }
+  if (drop !== lastDrop)   { lastDrop   = drop;   if (drop)   logEvent('DROP command sent'); }
+}
+</script>
+</body>
+</html>

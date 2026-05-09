@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Tetris</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="canvas-wrap">
+      <canvas id="game" width="1024" height="720"></canvas>
+    </div>
+    <!-- Mobile stats bar (hidden on desktop, shown on narrow screens) -->
+    <div id="mobile-stats">
+      <div class="mstat"><span class="mstat-lbl">SCORE</span><span id="m-score">0000000</span></div>
+      <div class="mstat"><span class="mstat-lbl">LEVEL</span><span id="m-level">01</span></div>
+      <div class="mstat"><span class="mstat-lbl">LINES</span><span id="m-lines">000</span></div>
+    </div>
+
+    <div id="controls">
+      <div class="status">
+        <span class="dot" id="voice-dot"></span>
+        <span id="voice-label">Voice: OFF</span>
+        <span id="voice-heard" class="voice-heard"></span>
+        <span id="controller-badge" style="display:none;background:rgba(50,205,50,.2);border:1px solid #32cd32;border-radius:12px;padding:2px 8px;font-size:11px;color:#32cd32;margin-left:4px;">📱 Controller</span>
+      </div>
+      <div class="buttons">
+        <button id="voice-toggle">START VOICE</button>
+        <button id="pause-btn">⏸ PAUSE</button>
+        <button id="cast-btn" title="Cast to TV">📺</button>
+      </div>
+      <div id="voice-error" class="note" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- Game over overlay -->
+  <div id="go-overlay">
+    <div class="go-box">
+      <div class="go-title">GAME OVER</div>
+      <div class="go-lbl">SCORE</div>
+      <div id="go-score">0000000</div>
+      <button id="go-restart">RESTART</button>
+    </div>
+  </div>
+
+  <!-- Cast instructions modal -->
+  <div id="cast-modal" class="cast-modal-overlay" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="cast-modal">
+      <h2>📺 Cast to TV</h2>
+
+      <p class="cast-section-title">Android (Chrome) → Chromecast / Mibox</p>
+      <ol class="cast-steps">
+        <li>In Chrome tap <b>⋮</b> → <b>"Cast…"</b></li>
+        <li>Select your <b>TV / Mibox</b></li>
+        <li>If asked — choose <b>"Cast tab"</b></li>
+        <li>Game appears on TV — use phone to control</li>
+      </ol>
+
+      <p class="cast-section-title">Android screen mirror (any TV)</p>
+      <ol class="cast-steps">
+        <li>Phone Settings → <b>Connected devices</b> → <b>Cast</b></li>
+        <li>Select your TV <span style="font-size:12px">(Samsung: Smart View, LG: Screen Share)</span></li>
+        <li>Open Chrome and play</li>
+      </ol>
+
+      <p class="cast-note">✅ Works on localhost — Chrome mirrors pixels, not the URL.</p>
+      <button onclick="document.getElementById('cast-modal').classList.remove('active')">OK</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -76,6 +76,18 @@
       background: linear-gradient(135deg, #00d4aa 0%, #007065 100%);
       color: #fff;
     }
+    /* Test button — small, dark, bottom corner */
+    .btn-test {
+      position: fixed; bottom: 14px; left: 14px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 10px;
+      color: rgba(255,255,255,0.5);
+      font: 12px -apple-system, Arial;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .btn-test:active { filter: brightness(1.4); }
 
     /* Discovery badge on TV button */
     .badge {
@@ -126,6 +138,7 @@
       <span>בלונים כאן</span>
       <span class="btn-subtitle">משחק מגע</span>
     </button>
+    <button class="btn-test" onclick="openTest()">🧪 Test gestures</button>
     <button class="btn btn-tetris" onclick="openTetris()">
       <span class="btn-icon">🟦</span>
       <span>טטריס כאן</span>
@@ -162,6 +175,9 @@ function openBalloon() {
 }
 function openTetris() {
   window.location.href = '/tetris.html';
+}
+function openTest() {
+  window.location.href = '/gesture_test.html';
 }
 
 // Also poll Android for already-discovered games at startup

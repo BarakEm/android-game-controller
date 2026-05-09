@@ -194,9 +194,13 @@ function connectToGame(game) {
   localStorage.setItem('gameCtrl_ip_' + game.type, ip);
   tryConnect(ip, game.port);
   if (gameMode === 'tetris') initVoice();
-  if (gameMode === 'balloon' || gameMode === 'tetris') {
-    zoneLeft.textContent  = '◀ שמאל';
-    zoneRight.textContent = 'ימין ▶';
+  // Left/right zones: gesture and tetris only (not balloon — balloon uses finger position)
+  const showLR = (gameMode === 'gesture' || gameMode === 'tetris');
+  zoneLeft.style.display  = showLR ? '' : 'none';
+  zoneRight.style.display = showLR ? '' : 'none';
+  if (showLR) {
+    zoneLeft.textContent  = '◀';
+    zoneRight.textContent = '▶';
   }
   const isTetris = gameMode === 'tetris';
   zoneTop.classList.toggle('show', isTetris);
@@ -311,9 +315,10 @@ const RELEASE_FRAMES = 6;
 let leftHold = 0, rightHold = 0, rotateHold = 0, dropHold = 0;
 let lastLeft = false, lastRight = false, lastRotate = false, lastDrop = false;
 
-// ── Frame capture (balloon mode only) ────────────────────────────────────────
+// ── Frame capture (balloon = 20fps, tetris = 5fps for camera background) ─────
 let frameCanvas, frameCtx, lastFrameTs = 0;
-const FRAME_INTERVAL = 50; // 20fps
+const FRAME_INTERVAL_BALLOON = 50;  // ms — 20fps
+const FRAME_INTERVAL_TETRIS  = 200; // ms — 5fps
 
 function initFrameCapture() {
   frameCanvas = document.createElement('canvas');
@@ -322,7 +327,9 @@ function initFrameCapture() {
 }
 
 function captureFrame(ts, isPortrait) {
-  if (ts - lastFrameTs < FRAME_INTERVAL) return;
+  if (!frameCanvas || !frameCtx) return;
+  const interval = gameMode === 'tetris' ? FRAME_INTERVAL_TETRIS : FRAME_INTERVAL_BALLOON;
+  if (ts - lastFrameTs < interval) return;
   lastFrameTs = ts;
   frameCtx.save();
   if (isPortrait) {
@@ -391,8 +398,10 @@ function loop(ts) {
   const rotate = rotateHold > 0;
   const drop   = dropHold   > 0;
 
-  zoneLeft.classList.toggle('active',   left);
-  zoneRight.classList.toggle('active',  right);
+  if (gameMode !== 'balloon') {
+    zoneLeft.classList.toggle('active',  left);
+    zoneRight.classList.toggle('active', right);
+  }
   zoneTop.classList.toggle('active',    rotate);
   zoneBottom.classList.toggle('active', drop);
 
@@ -409,10 +418,12 @@ function loop(ts) {
     if (drop) send({ type: 'voice', cmd: 'drop' });
   }
 
-  // Balloon mode extras
+  // Mode-specific extras
   if (gameMode === 'balloon') {
     if (fingers.length > 0) send({ type: 'pose', fingers });
     captureFrame(ts, isPortrait);
+  } else if (gameMode === 'tetris') {
+    captureFrame(ts, isPortrait); // camera background on TV
   }
 }
 
@@ -497,9 +508,9 @@ function handleVoiceResult(text) {
   }
 }
 
-// ── Init balloon frame capture ─────────────────────────────────────────────
+// ── Init frame capture for balloon and tetris ──────────────────────────────
 setTimeout(() => {
-  if (gameMode === 'balloon') initFrameCapture();
+  if (gameMode === 'balloon' || gameMode === 'tetris') initFrameCapture();
 }, 1000);
 
 init();

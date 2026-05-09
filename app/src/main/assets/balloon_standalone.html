@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>בלונים עבריים</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: linear-gradient(180deg, #5bbef5 0%, #a8dcf8 55%, #b8e8b0 100%);
+    }
+
+    #camFeed {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.5s;
+      pointer-events: none;
+    }
+
+    #game { position: fixed; inset: 0; width: 100%; height: 100%; }
+
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 14px 22px;
+      display: flex; justify-content: space-between; align-items: center;
+      pointer-events: none;
+      color: #fff;
+      font: 800 30px/1 "Segoe UI", Arial, sans-serif;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      z-index: 10; direction: rtl;
+    }
+
+    /* Letter name flash after each pop */
+    #letterFlash {
+      position: fixed; top: 42%; left: 50%;
+      transform: translate(-50%, -50%);
+      font: 900 clamp(72px, 13vw, 150px)/1.15 "Segoe UI Hebrew", Arial, sans-serif;
+      color: #fff;
+      text-shadow: 0 0 60px rgba(0,0,0,0.35), 0 4px 24px rgba(0,0,0,0.55);
+      z-index: 15; pointer-events: none;
+      text-align: center; direction: rtl;
+      display: none; opacity: 1;
+      transition: opacity 0.4s;
+    }
+    #letterFlash.celebration {
+      color: #FFD700;
+      text-shadow: 0 0 60px rgba(255,180,0,0.6), 0 4px 24px rgba(0,0,0,0.5);
+      font-size: clamp(54px, 9vw, 110px);
+    }
+
+    #connStatus {
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+      font: 600 16px/1 "Segoe UI", Arial, sans-serif;
+      color: rgba(255,255,255,0.6);
+      pointer-events: none; z-index: 10;
+      text-shadow: 0 1px 6px #000;
+    }
+    #connStatus.connected    { color: #7fff7f; }
+    #connStatus.disconnected { color: #ff8080; }
+
+    #overlay {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 20, 0.92);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #fff; font-family: "Segoe UI", Arial, sans-serif;
+      z-index: 20; gap: 20px; padding: 40px; text-align: center;
+    }
+    #overlay h1   { font-size: 58px; }
+    #overlay .sub { font-size: 20px; opacity: 0.75; max-width: 520px; line-height: 1.7; }
+    #overlay .ip  { font-size: 28px; color: #6495ed; font-weight: bold; letter-spacing: 2px; }
+    .spinner {
+      width: 52px; height: 52px;
+      border: 6px solid rgba(255,255,255,0.15);
+      border-top-color: #6495ed; border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #closeBtn {
+      position: fixed; top: 14px; right: 18px; z-index: 100;
+      width: 52px; height: 52px; border-radius: 50%; border: 0;
+      background: rgba(0,0,0,0.4); color: #fff;
+      font-size: 26px; line-height: 52px; text-align: center;
+      cursor: pointer; opacity: 0.55; transition: opacity 0.15s;
+    }
+    #closeBtn:hover, #closeBtn:focus { opacity: 1; }
+  </style>
+</head>
+<body>
+<button id="closeBtn" type="button" title="סגור"
+  onclick="if(window.AndroidBridge&&AndroidBridge.closeApp)AndroidBridge.closeApp();">✕</button>
+<img id="camFeed" alt="">
+<canvas id="game"></canvas>
+
+<div id="hud" style="display:none">
+  <span id="scoreEl">⭐ 0</span>
+  <span id="comboEl"></span>
+  <span id="levelEl"></span>
+</div>
+
+<div id="letterFlash"></div>
+<div id="connStatus"></div>
+
+<div id="overlay">
+  <h1>🎈 בלונים!</h1>
+  <div class="spinner"></div>
+  <div class="sub">ממתין לטלפון…<br>
+    <small style="opacity:.6">Open "Balloon Controller" on your phone</small>
+  </div>
+  <div class="ip" id="tvIpEl"></div>
+  <div class="sub" id="overlayHint" style="font-size:15px;opacity:.5"></div>
+  <button id="standaloneBtn"
+    style="font-size:20px;padding:12px 36px;border:none;border-radius:40px;
+           background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;
+           border:2px solid rgba(255,255,255,0.3);">
+    🎮 שחק לבד (ללא MiBox)
+  </button>
+</div>
+
+<script>
+// ── Data ───────────────────────────────────────────────────────────────────────
+const LETTERS = [
+  ['א','אָלֶף'],['ב','בֵּית'],['ג','גִּימֶל'],['ד','דָּלֶת'],
+  ['ה','הֵא'],  ['ו','וָו'],  ['ז','זַיִן'], ['ח','חֵית'],
+  ['ט','טֵית'], ['י','יוֹד'], ['כ','כַּף'],  ['ל','לָמֶד'],
+  ['מ','מֵם'],  ['נ','נוּן'], ['ס','סָמֶךְ'],['ע','עַיִן'],
+  ['פ','פֵּא'],  ['צ','צָדִי'],['ק','קוֹף'], ['ר','רֵישׁ'],
+  ['ש','שִׁין'], ['ת','תָּו'],
+];
+
+// Plain Hebrew — no nikud so TTS engine pronounces naturally
+const SPECIALS = [
+  // Animals
+  { emoji: '🦄', tts: 'חד קרן'   },
+  { emoji: '🐕', tts: 'כלב'      },
+  { emoji: '🐱', tts: 'חתול'     },
+  { emoji: '🐦', tts: 'ציפור'    },
+  { emoji: '🐟', tts: 'דג'       },
+  { emoji: '🐘', tts: 'פיל'      },
+  { emoji: '🐰', tts: 'ארנב'     },
+  { emoji: '🦋', tts: 'פרפר'     },
+  { emoji: '🐬', tts: 'דולפין'   },
+  { emoji: '🐮', tts: 'פרה'      },
+  { emoji: '🐴', tts: 'סוס'      },
+  { emoji: '🐒', tts: 'קוף'      },
+  { emoji: '🐼', tts: 'פנדה'     },
+  { emoji: '🐸', tts: 'צפרדע'    },
+  // Food
+  { emoji: '🍎', tts: 'תפוח'     },
+  { emoji: '🍌', tts: 'בננה'     },
+  { emoji: '🎂', tts: 'עוגה'     },
+  { emoji: '🍦', tts: 'גלידה'    },
+  { emoji: '🍭', tts: 'סוכריה'   },
+  // Nature
+  { emoji: '☀️', tts: 'שמש'      },
+  { emoji: '🌙', tts: 'ירח'      },
+  { emoji: '⭐',  tts: 'כוכב'    },
+  { emoji: '🌈', tts: 'קשת'      },
+  { emoji: '🌸', tts: 'פרח'      },
+  { emoji: '🌳', tts: 'עץ'       },
+  // Everyday things
+  { emoji: '⚽', tts: 'כדור'     },
+  { emoji: '🚗', tts: 'מכונית'   },
+  { emoji: '🏠', tts: 'בית'      },
+  { emoji: '📚', tts: 'ספר'      },
+  { emoji: '🎈', tts: 'בלון'     },
+  // Family & names
+  { emoji: '⚡', tts: 'ברק'      },
+  { emoji: '🌺', tts: 'יסמין'    },
+  { emoji: '👧', tts: 'רונה'     },
+  { emoji: '👵', tts: 'סבתא'     },
+  { emoji: '🌷', tts: 'רותי'     },
+  { emoji: '👴', tts: 'איציק'    },
+  { emoji: '🎀', tts: 'נויה'     },
+];
+
+// Plain Hebrew — no nikud
+const PRAISES = [
+  'כל הכבוד', 'יופי', 'מצוין', 'נהדר', 'אחלה', 'מעולה', 'הידד',
+];
+
+// ── TV IP display (only in the TV/balloon APK which has getLocalIp) ───────────
+(function() {
+  try {
+    if (!window.AndroidBridge || typeof AndroidBridge.getLocalIp !== 'function') return;
+    document.getElementById('tvIpEl').textContent = AndroidBridge.getLocalIp();
+    document.getElementById('overlayHint').textContent =
+      'TV IP - open "Balloon Controller" on the phone';
+  } catch(e) {}
+})();
+
+// ── TTS ────────────────────────────────────────────────────────────────────────
+// Use native Android TTS only in the TV balloon APK (getLocalIp present = balloon TV bridge).
+// On phone/tablet standalone, use Web Speech (Chrome WebView delegates to Google TTS).
+function speak(text) {
+  const isTvApk = window.AndroidBridge &&
+                  typeof AndroidBridge.getLocalIp === 'function' &&
+                  typeof AndroidBridge.speak      === 'function';
+  if (isTvApk) {
+    AndroidBridge.speak(text, 'he-IL');
+  } else {
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'he-IL'; u.rate = 0.82; u.pitch = 1.1;
+      window.speechSynthesis.speak(u);
+    } catch(e) {}
+  }
+}
+
+// Praise every 3rd regular pop, always for specials
+let praiseTimer, popsSincePraise = 0;
+function speakWithMaybePraise(name, isSpecial) {
+  speak(name);
+  popsSincePraise++;
+  const shouldPraise = isSpecial || popsSincePraise >= 3;
+  if (shouldPraise) {
+    popsSincePraise = 0;
+    clearTimeout(praiseTimer);
+    praiseTimer = setTimeout(() => speak(PRAISES[Math.floor(Math.random() * PRAISES.length)]), 950);
+  }
+}
+
+// Masculine Hebrew number for בלון (masculine noun)
+function hebrewCount(n) {
+  const map = {
+    5: 'חמישה', 10: 'עשרה', 15: 'חמישה עשר', 20: 'עשרים',
+    25: 'עשרים וחמישה', 30: 'שלושים', 35: 'שלושים וחמישה',
+    40: 'ארבעים', 45: 'ארבעים וחמישה', 50: 'חמישים',
+  };
+  return (map[n] || n) + ' בלונים';
+}
+
+// ── Sounds ─────────────────────────────────────────────────────────────────────
+let audioCtx;
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playPop(freq = 520) {
+  const ac = getAudio();
+  const osc = ac.createOscillator(), g = ac.createGain();
+  osc.connect(g); g.connect(ac.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq, ac.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(freq * 2, ac.currentTime + 0.06);
+  g.gain.setValueAtTime(0.4, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.22);
+  osc.start(); osc.stop(ac.currentTime + 0.25);
+}
+
+function playFanfare() {
+  const ac = getAudio();
+  [523, 659, 784, 1047].forEach((freq, i) => {
+    const osc = ac.createOscillator(), g = ac.createGain();
+    osc.connect(g); g.connect(ac.destination);
+    osc.type = 'triangle';
+    const t = ac.currentTime + i * 0.13;
+    osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    osc.start(t); osc.stop(t + 0.4);
+  });
+}
+
+// ── Letter flash overlay ───────────────────────────────────────────────────────
+const flashEl = document.getElementById('letterFlash');
+let flashTimer;
+
+function flashText(html, isCelebration = false, duration = 1600) {
+  flashEl.innerHTML = html;
+  flashEl.className = isCelebration ? 'celebration' : '';
+  flashEl.style.display = 'block';
+  flashEl.style.opacity = '1';
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {
+    flashEl.style.opacity = '0';
+    setTimeout(() => { flashEl.style.display = 'none'; }, 400);
+  }, duration);
+}
+
+// ── Canvas ─────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+// ── Clouds ─────────────────────────────────────────────────────────────────────
+const CLOUDS = [
+  { fx: 0.08, fy: 0.07, scale: 1.1,  speed: 0.000055 },
+  { fx: 0.38, fy: 0.04, scale: 0.85, speed: 0.000040 },
+  { fx: 0.65, fy: 0.10, scale: 1.3,  speed: 0.000048 },
+  { fx: 0.88, fy: 0.06, scale: 0.75, speed: 0.000035 },
+  { fx: 0.52, fy: 0.14, scale: 0.95, speed: 0.000060 },
+];
+
+function drawCloud(fx, fy, scale) {
+  const x = fx * canvas.width, y = fy * canvas.height;
+  const w = 110 * scale, h = 44 * scale;
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(x,           y,         w,     h,     0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x - w*0.32,  y + h*0.1, w*0.5, h*0.7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + w*0.3,   y + h*0.1, w*0.55,h*0.65,0, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function updateAndDrawClouds() {
+  for (const c of CLOUDS) {
+    c.fx -= c.speed;
+    if (c.fx < -0.22) c.fx = 1.12;
+    drawCloud(c.fx, c.fy, c.scale);
+  }
+}
+
+// ── Game state ─────────────────────────────────────────────────────────────────
+let score = 0, running = false;
+let balloons = [], particles = [];
+let fingers = [], fingerTs = 0;          // array of {x,y} in canvas pixels
+let lastSpawn = 0, lastPopTime = 0;
+let lastPopX = null, lastPopY = null;    // dead-zone: where last pop happened
+const DEAD_ZONE = 130;                   // px — must move this far before next pop
+let warmupUntil = 0;                     // no pops during first 2s after connect
+let recentLetters = [];    // last 5 popped letters for repetition
+const MAX_BALLOONS   = 6;
+const SPAWN_INTERVAL = 1800; // fixed, no level acceleration
+
+const COLORS = [
+  '#ff4d4d','#ff8c00','#ffd700','#44cc44',
+  '#4da6ff','#b06bff','#ff4da6','#33ccbb',
+  '#ff6eb4','#88dd44',
+];
+
+// ── Spawn ──────────────────────────────────────────────────────────────────────
+function spawnBalloon() {
+  if (balloons.filter(b => !b.popping).length >= MAX_BALLOONS) return;
+
+  const r = 62 + Math.random() * 22; // bigger than before
+  const x = r + Math.random() * (canvas.width - r * 2);
+  const speed = 0.65 + Math.random() * 0.55; // slower, friendlier
+
+  // 15% chance: surprise special character
+  if (Math.random() < 0.15) {
+    const sp = SPECIALS[Math.floor(Math.random() * SPECIALS.length)];
+    balloons.push({
+      x, y: canvas.height + r + 20, r,
+      letter: sp.emoji, name: sp.tts,
+      isSpecial: true,
+      color: '#FFD700',
+      speed, wobble: (Math.random() - 0.5) * 0.7,
+      age: 0, popping: false, popScale: 1,
+    });
+    return;
+  }
+
+  // 25% chance: repeat a recently popped letter (reinforcement)
+  let letterData;
+  if (recentLetters.length > 0 && Math.random() < 0.25) {
+    const rep = recentLetters[Math.floor(Math.random() * recentLetters.length)];
+    letterData = LETTERS.find(([c]) => c === rep) || LETTERS[Math.floor(Math.random() * LETTERS.length)];
+  } else {
+    letterData = LETTERS[Math.floor(Math.random() * LETTERS.length)];
+  }
+
+  balloons.push({
+    x, y: canvas.height + r + 20, r,
+    letter: letterData[0], name: letterData[1],
+    isSpecial: false,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    speed, wobble: (Math.random() - 0.5) * 0.7,
+    age: 0, popping: false, popScale: 1,
+  });
+}
+
+// ── Pop ────────────────────────────────────────────────────────────────────────
+function popBalloon(b) {
+  if (b.popping) return;
+  b.popping = true;
+  lastPopTime = performance.now();
+  lastPopX = b.x; lastPopY = b.y;
+  score++;
+  updateHUD();
+
+  playPop(440 + Math.random() * 220);
+  speakWithMaybePraise(b.name, b.isSpecial);
+  burst(b.x, b.y, b.color, b.isSpecial ? 30 : 20);
+  flashText(b.name, false, 1500);
+
+  if (!b.isSpecial) {
+    recentLetters.push(b.letter);
+    if (recentLetters.length > 5) recentLetters.shift();
+  }
+
+  // Celebration every 5 pops
+  if (score > 0 && score % 5 === 0) {
+    setTimeout(() => triggerCelebration(), 1100); // after praise finishes
+  }
+}
+
+function triggerCelebration() {
+  playFanfare();
+  spawnConfetti();
+  const praise = PRAISES[Math.floor(Math.random() * PRAISES.length)];
+  flashText('🌟 ' + hebrewCount(score) + '! 🌟<br><span style="font-size:0.55em">' + praise + '</span>', true, 2400);
+  setTimeout(() => speak(hebrewCount(score) + '! ' + praise), 200);
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+function burst(x, y, color, count = 20) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2, s = 3 + Math.random() * 9;
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s,
+                     color, r: 4 + Math.random()*6, life: 1, confetti: false });
+  }
+}
+
+function spawnConfetti() {
+  const confettiColors = ['#ff4d4d','#ffd700','#44cc44','#4da6ff','#ff4da6','#b06bff','#ff8c00','#fff'];
+  for (let i = 0; i < 70; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: -10 - Math.random() * 80,
+      vx: (Math.random() - 0.5) * 5,
+      vy: 2 + Math.random() * 5,
+      color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+      r: 5 + Math.random() * 5,
+      life: 1,
+      confetti: true,
+    });
+  }
+}
+
+// ── Draw ───────────────────────────────────────────────────────────────────────
+function drawBalloon(b) {
+  const s = b.popping ? b.popScale : 1;
+  ctx.save(); ctx.translate(b.x, b.y); ctx.scale(s, s);
+
+  // Glow for specials
+  if (b.isSpecial) {
+    ctx.shadowBlur = 30; ctx.shadowColor = '#FFD700';
+  } else {
+    ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  }
+
+  ctx.beginPath(); ctx.ellipse(0, 0, b.r, b.r*1.15, 0, 0, Math.PI*2);
+  ctx.fillStyle = b.color; ctx.fill();
+
+  ctx.beginPath(); ctx.ellipse(-b.r*.28, -b.r*.35, b.r*.22, b.r*.3, -.4, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.beginPath(); ctx.arc(0, b.r*1.15, 5, 0, Math.PI*2);
+  ctx.fillStyle = b.color; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0, b.r*1.2); ctx.lineTo(3, b.r*2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+  if (b.isSpecial) {
+    // Emoji — larger font, centered
+    ctx.font = `${b.r * 1.1}px "Segoe UI Emoji", "Noto Color Emoji", Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(b.letter, 0, b.r * 0.07);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${b.r * 1.05}px "Segoe UI Hebrew", Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowBlur = 5; ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.fillText(b.letter, 0, 2);
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+function drawStar(c, x, y, r, color, alpha) {
+  c.save();
+  c.globalAlpha = alpha != null ? alpha : 1;
+  c.translate(x, y);
+  c.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const o   = (i * 4 * Math.PI / 5) - Math.PI / 2;
+    const inn = o + Math.PI / 5;
+    i === 0 ? c.moveTo(Math.cos(o)*r, Math.sin(o)*r)
+            : c.lineTo(Math.cos(o)*r, Math.sin(o)*r);
+    c.lineTo(Math.cos(inn)*r*0.42, Math.sin(inn)*r*0.42);
+  }
+  c.closePath();
+  c.fillStyle = color; c.fill();
+  c.restore();
+}
+
+function drawFinger(x, y) {
+  ctx.save();
+  ctx.shadowBlur = 30; ctx.shadowColor = '#ffaaff';
+  drawStar(ctx, x, y, 38, '#ffffffbb', 0.85);
+  ctx.shadowBlur = 0; ctx.restore();
+  drawStar(ctx, x, y, 26, '#ff88dd');
+  drawStar(ctx, x, y, 13, '#ffffff');
+}
+
+function updateHUD() {
+  document.getElementById('scoreEl').textContent = `⭐ ${score}`;
+}
+
+// ── Game loop ──────────────────────────────────────────────────────────────────
+function gameLoop(ts) {
+  if (!running) return;
+  requestAnimationFrame(gameLoop);
+
+  if (fingers.length > 0 && ts - fingerTs > 500) fingers = [];
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  updateAndDrawClouds();
+
+  if (ts - lastSpawn > SPAWN_INTERVAL) { spawnBalloon(); lastSpawn = ts; }
+
+  // Track which finger indices are already "over" a balloon this frame
+  // so they can't reach through a popping balloon to the one underneath
+  const usedFingers = new Set();
+
+  for (let i = balloons.length - 1; i >= 0; i--) {
+    const b = balloons[i];
+    b.age++;
+    if (b.popping) {
+      b.popScale += 0.13;
+      if (b.popScale > 1.9) { balloons.splice(i, 1); continue; }
+      drawBalloon(b);
+      // Consume any finger that is over this popping balloon
+      for (let fi = 0; fi < fingers.length; fi++) {
+        if (!usedFingers.has(fi) &&
+            Math.hypot(fingers[fi].x - b.x, fingers[fi].y - b.y) < b.r + 26) {
+          usedFingers.add(fi);
+        }
+      }
+      continue;
+    }
+    b.y -= b.speed;
+    b.x += Math.sin(b.age * 0.045) * b.wobble;
+    if (b.y + b.r < 0) { balloons.splice(i, 1); continue; }
+
+    if (fingers.length > 0 && ts - lastPopTime > 250 && ts > warmupUntil) {
+      for (let fi = 0; fi < fingers.length; fi++) {
+        if (usedFingers.has(fi)) continue;
+        const f = fingers[fi];
+        const clearOfDeadZone = lastPopX === null ||
+          Math.hypot(f.x - lastPopX, f.y - lastPopY) > DEAD_ZONE;
+        if (Math.hypot(f.x - b.x, f.y - b.y) < b.r + 26) {
+          usedFingers.add(fi); // consume finger regardless of dead zone
+          if (clearOfDeadZone) popBalloon(b);
+          break;
+        }
+      }
+    }
+    drawBalloon(b);
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += p.confetti ? 0.12 : 0.2;
+    p.life -= p.confetti ? 0.012 : 0.04;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.globalAlpha = p.life;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (p.confetti ? 1 : p.life), 0, Math.PI*2);
+    ctx.fillStyle = p.color; ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  for (const f of fingers) drawFinger(f.x, f.y);
+}
+
+// ── Phone controller callbacks ─────────────────────────────────────────────────
+const camFeed = document.getElementById('camFeed');
+
+window.receivePoseData = function(data) {
+  if (typeof data === 'string') data = JSON.parse(data);
+  if (data.type !== 'pose') return;
+  if (data.fingers && data.fingers.length > 0) {
+    fingers  = data.fingers.map(f => ({ x: f.x * canvas.width, y: f.y * canvas.height }));
+  } else if (data.finger) {
+    fingers  = [{ x: data.finger.x * canvas.width, y: data.finger.y * canvas.height }];
+  }
+  fingerTs = performance.now();
+};
+
+window.receiveFrameData = function(data) {
+  if (typeof data === 'string') data = JSON.parse(data);
+  if (data.type === 'frame' && data.img) camFeed.src = data.img;
+};
+
+// Voice letter pop: controller sends {type:"voice", letter:"א"}
+window.receiveVoiceLetter = function(letter) {
+  if (!running) return;
+  for (let i = balloons.length - 1; i >= 0; i--) {
+    const b = balloons[i];
+    if (!b.popping && b.letter === letter) { popBalloon(b); break; }
+  }
+};
+
+// ── Touch-to-pop for standalone mode ──────────────────────────────────────────
+canvas.addEventListener('touchstart', (e) => {
+  if (!running) return;
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const r = canvas.getBoundingClientRect();
+    const tx = (t.clientX - r.left) * canvas.width  / r.width;
+    const ty = (t.clientY - r.top)  * canvas.height / r.height;
+    for (let i = balloons.length - 1; i >= 0; i--) {
+      const b = balloons[i];
+      if (!b.popping && Math.hypot(tx - b.x, ty - b.y) < b.r + 20) {
+        popBalloon(b); break;
+      }
+    }
+  }
+}, { passive: false });
+
+// ── Standalone button (play without MiBox) ─────────────────────────────────────
+document.getElementById('standaloneBtn').addEventListener('click', () => {
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('hud').style.display     = '';
+  document.getElementById('connStatus').textContent = '';
+  getAudio();
+  running = true;
+  requestAnimationFrame(gameLoop);
+});
+
+window.onControllerConnected = function() {
+  fingers    = [];                             // discard any stale finger data
+  lastPopX   = null; lastPopY = null;          // reset dead zone
+  warmupUntil = performance.now() + 2000;      // 2s grace — show cursor, no pops
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('hud').style.display     = '';
+  camFeed.style.opacity = '0.52';
+  const cs = document.getElementById('connStatus');
+  cs.textContent = '🟢 בקר מחובר'; cs.className = 'connected';
+  if (!running) { getAudio(); running = true; requestAnimationFrame(gameLoop); }
+};
+
+window.onControllerDisconnected = function() {
+  fingers = [];
+  camFeed.style.opacity = '0';
+  const cs = document.getElementById('connStatus');
+  cs.textContent = '🔴 בקר התנתק - פתח מחדש את Balloon Controller בטלפון';
+  cs.className = 'disconnected';
+};
+</script>
+</body>
+</html>
