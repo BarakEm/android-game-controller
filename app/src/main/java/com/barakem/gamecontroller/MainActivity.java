@@ -124,15 +124,23 @@ public class MainActivity extends Activity {
     }
 
     private void addOrUpdateGame(String type, String ip, int port) {
-        boolean isNew;
+        boolean shouldNotify;
         synchronized (gamesLock) {
-            isNew = true;
+            DiscoveredGame found = null;
             for (DiscoveredGame g : discoveredGames) {
-                if (g.type.equals(type)) { g.ip = ip; g.port = port; isNew = false; break; }
+                if (g.type.equals(type)) { found = g; break; }
             }
-            if (isNew) discoveredGames.add(new DiscoveredGame(type, ip, port));
+            if (found == null) {
+                discoveredGames.add(new DiscoveredGame(type, ip, port));
+                shouldNotify = true;
+            } else {
+                // Notify on IP/port change so the controller reconnects to the new address.
+                // Repeated broadcasts with the same address are silently ignored to avoid spam.
+                shouldNotify = !found.ip.equals(ip) || found.port != port;
+                found.ip = ip; found.port = port;
+            }
         }
-        if (isNew) {
+        if (shouldNotify) {
             final String json = gameJson(type, ip, port);
             runOnUiThread(() -> webView.evaluateJavascript(
                 "if(window.onGameDiscovered)window.onGameDiscovered(" + json + ");", null));
