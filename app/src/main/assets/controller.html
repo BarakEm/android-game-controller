@@ -473,7 +473,7 @@ function initVoice() {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = false;
-  recognition.lang = gameMode === 'tetris' ? 'he-IL' : 'he-IL';
+  recognition.lang = 'he-IL';
   recognition.maxAlternatives = 3;
 
   recognition.onresult = (e) => {
