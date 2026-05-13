@@ -92,12 +92,18 @@ public class MainActivity extends Activity {
 
     private Thread startUdpThread(final String prefix, final int port) {
         Thread t = new Thread(() -> {
+            DatagramSocket sock;
             try {
-                DatagramSocket sock = new DatagramSocket(port);
-                if      (prefix.equals("HVGAME"))        udpBalloon = sock;
-                else if (prefix.equals("GESTURE_GAME"))  udpGesture = sock;
-                else                                     udpTetris  = sock;
+                sock = new DatagramSocket(port);
+            } catch (Exception e) {
+                Log.w(TAG, "UDP[" + port + "]: bind failed: " + e.getMessage());
+                return;
+            }
+            if      (prefix.equals("HVGAME"))        udpBalloon = sock;
+            else if (prefix.equals("GESTURE_GAME"))  udpGesture = sock;
+            else                                     udpTetris  = sock;
 
+            try {
                 byte[] buf = new byte[256];
                 while (!Thread.currentThread().isInterrupted()) {
                     DatagramPacket pkt = new DatagramPacket(buf, buf.length);
@@ -106,16 +112,23 @@ public class MainActivity extends Activity {
                     if (msg.startsWith(prefix + ":")) {
                         String[] parts = msg.split(":");
                         if (parts.length >= 3) {
-                            String ip    = parts[1];
-                            int    wsPort = Integer.parseInt(parts[2].trim());
+                            String ip = parts[1];
+                            int wsPort;
+                            try {
+                                wsPort = Integer.parseInt(parts[2].trim());
+                            } catch (NumberFormatException nfe) {
+                                Log.w(TAG, "UDP[" + port + "]: bad port, packet ignored");
+                                continue;
+                            }
                             addOrUpdateGame(prefix, ip, wsPort);
                         }
                     }
                 }
-                sock.close();
             } catch (Exception e) {
                 if (!Thread.currentThread().isInterrupted())
                     Log.w(TAG, "UDP[" + port + "]: " + e.getMessage());
+            } finally {
+                sock.close();
             }
         }, "udp-" + port);
         t.setDaemon(true);
