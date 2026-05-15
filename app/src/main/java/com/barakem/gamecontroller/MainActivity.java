@@ -113,6 +113,10 @@ public class MainActivity extends Activity {
                                 continue;
                             }
                             int    wsPort = Integer.parseInt(parts[2].trim());
+                            if (wsPort < 1 || wsPort > 65535) {
+                                Log.w(TAG, "UDP[" + port + "]: invalid port ignored: " + wsPort);
+                                continue;
+                            }
                             addOrUpdateGame(prefix, ip, wsPort);
                         }
                     }
