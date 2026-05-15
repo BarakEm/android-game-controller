@@ -194,6 +194,7 @@ function connectToGame(game) {
   localStorage.setItem('gameCtrl_ip_' + game.type, ip);
   tryConnect(ip, game.port);
   if (gameMode === 'tetris') initVoice();
+  if (gameMode === 'balloon' || gameMode === 'tetris') initFrameCapture();
   // Left/right zones: gesture and tetris only (not balloon — balloon uses finger position)
   const showLR = (gameMode === 'gesture' || gameMode === 'tetris');
   zoneLeft.style.display  = showLR ? '' : 'none';
@@ -321,6 +322,7 @@ const FRAME_INTERVAL_BALLOON = 50;  // ms — 20fps
 const FRAME_INTERVAL_TETRIS  = 200; // ms — 5fps
 
 function initFrameCapture() {
+  if (frameCanvas) return;
   frameCanvas = document.createElement('canvas');
   frameCanvas.width = 400; frameCanvas.height = 300;
   frameCtx = frameCanvas.getContext('2d');
@@ -507,11 +509,6 @@ function handleVoiceResult(text) {
     if (letter) send({ type: 'voice', letter });
   }
 }
-
-// ── Init frame capture for balloon and tetris ──────────────────────────────
-setTimeout(() => {
-  if (gameMode === 'balloon' || gameMode === 'tetris') initFrameCapture();
-}, 1000);
 
 init();
 </script>
