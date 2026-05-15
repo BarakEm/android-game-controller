@@ -107,6 +107,11 @@ public class MainActivity extends Activity {
                         String[] parts = msg.split(":");
                         if (parts.length >= 3) {
                             String ip    = parts[1];
+                            // Reject non-IPv4 values to prevent JS injection via evaluateJavascript
+                            if (!ip.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
+                                Log.w(TAG, "UDP[" + port + "]: invalid IP ignored: " + ip);
+                                continue;
+                            }
                             int    wsPort = Integer.parseInt(parts[2].trim());
                             addOrUpdateGame(prefix, ip, wsPort);
                         }
