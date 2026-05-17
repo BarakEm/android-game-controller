@@ -193,6 +193,7 @@ function connectToGame(game) {
   const ip = saved && saved === game.ip ? saved : game.ip;
   localStorage.setItem('gameCtrl_ip_' + game.type, ip);
   tryConnect(ip, game.port);
+  if (gameMode === 'balloon' || gameMode === 'tetris') initFrameCapture();
   if (gameMode === 'tetris') initVoice();
   // Left/right zones: gesture and tetris only (not balloon — balloon uses finger position)
   const showLR = (gameMode === 'gesture' || gameMode === 'tetris');
@@ -507,11 +508,6 @@ function handleVoiceResult(text) {
     if (letter) send({ type: 'voice', letter });
   }
 }
-
-// ── Init frame capture for balloon and tetris ──────────────────────────────
-setTimeout(() => {
-  if (gameMode === 'balloon' || gameMode === 'tetris') initFrameCapture();
-}, 1000);
 
 init();
 </script>
