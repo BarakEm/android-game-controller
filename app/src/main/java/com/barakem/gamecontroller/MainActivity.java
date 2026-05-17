@@ -112,7 +112,17 @@ public class MainActivity extends Activity {
                                 Log.w(TAG, "UDP[" + port + "]: invalid IP ignored: " + ip);
                                 continue;
                             }
-                            int    wsPort = Integer.parseInt(parts[2].trim());
+                            int wsPort;
+                            try {
+                                wsPort = Integer.parseInt(parts[2].trim());
+                            } catch (NumberFormatException nfe) {
+                                Log.w(TAG, "UDP[" + port + "]: invalid port ignored: " + parts[2].trim());
+                                continue;
+                            }
+                            if (wsPort < 1 || wsPort > 65535) {
+                                Log.w(TAG, "UDP[" + port + "]: port out of range: " + wsPort);
+                                continue;
+                            }
                             addOrUpdateGame(prefix, ip, wsPort);
                         }
                     }
